@@ -2,9 +2,9 @@
 
 > **Real-time spatial hand interaction inspired by sci-fi, built on engineering rigor. Webcam only. Measurable. Reproducible.**
 
-[![Tests Passing](https://img.shields.io/badge/tests-31%20passing-brightgreen)](tests/)
+[![Tests Passing](https://img.shields.io/badge/tests-37%20passing-brightgreen)](tests/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20M5-blue)](docs/PHASE1_AUDIT.md)
-[![Stage](https://img.shields.io/badge/stage-Phase%201%20%7C%20Acquisition%20Ready-orange)](docs/)
+[![Stage](https://img.shields.io/badge/stage-Phase%201%20%7C%20Live%20Interaction-orange)](docs/)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey)]()
 
 ---
@@ -32,10 +32,10 @@ A **low-latency, hand-driven spatial interaction system** built from first princ
 2. **Measured performance** — latency broken down stage-by-stage, not just "FPS go brrr"
 3. **Explicit semantics** — coordinate spaces, timestamps, transforms, validity, confidence are all explicit, never implicit
 4. **Reproducible baselines** — bounded buffering, sequence tracking, drop accounting mean results actually repeat
-5. **Deterministic tests** — 31+ tests pass without touching hardware; hardware-specific tests are separate
+5. **Deterministic tests** — 37+ tests pass without touching hardware; hardware-specific validation is separate
 6. **Honest limitations** — unresolved problems are documented, not hidden
 
-**Current state:** Phase 1 acquisition foundation is complete and tested. Ready for M5 hardware validation.
+**Current state:** Phase 1 acquisition, Vision perception, and live spatial interaction foundations are implemented and validated on the target MacBook Air M5. Phase 1 exit evidence is still in progress.
 
 ---
 
@@ -64,21 +64,21 @@ Input → Acquisition → Perception → State → Intent → Interaction → Sc
 | Scene/content abstraction | ✅ Complete |
 | Bounded acquisition | ✅ Complete |
 | Synthetic acquisition (testing) | ✅ Complete |
-| Native macOS AVFoundation | ✅ Complete (untested on M5) |
-| Acquisition protocol & tests | ✅ 31/31 passing |
-| Hand perception | ⏳ Pending perception selection |
-| State estimation | ⏳ Pending perception |
-| Live interaction | ⏳ Pending perception |
-| Phase 1 exit evidence | ⏳ Pending M5 validation |
+| Native macOS AVFoundation | ✅ Complete and hardware-validated |
+| Acquisition protocol & tests | ✅ 37/37 deterministic tests passing |
+| Hand perception | ✅ Apple Vision hand-pose backend implemented and hardware-validated |
+| State estimation | 🟡 Foundation implemented; Phase 3 filtering/state estimation pending |
+| Live interaction | ✅ Selection, translation, two-hand scaling, and pinch-based rotation implemented |
+| Phase 1 exit evidence | 🟡 In progress; sustained performance and robustness evidence remain |
 
 ### What's NOT Built (Yet)
 
-- Live hand perception (intentionally deferred until M5 baseline exists)
-- Performance benchmarks on target hardware
-- Gesture recognition
+- Sustained live perception characterization and robustness validation
+- Complete sustained performance characterization on target hardware
+- Higher-level temporal gesture recognition and intent semantics (Phase 3)
 - Wearable sensor integration (Phase 2)
 
-**No Phase 1 completion claim is made until M5 validation exists.**
+**M5 hardware validation has begun and live interaction is operational; no Phase 1 completion claim is made until the full exit evidence is satisfied.**
 
 ---
 
@@ -92,7 +92,7 @@ Webcam → MediaPipe → Gesture Detection → 3D Renderer → Demo
 
 That produces something impressive in a day. **This project doesn't do that.**
 
-Instead, the perception backend will be selected empirically using measured evidence across:
+Instead, the perception backend is provisionally implemented using Apple Vision and will be evaluated empirically using measured evidence across:
 - latency / throughput
 - landmark stability
 - jitter under different conditions
@@ -100,7 +100,7 @@ Instead, the perception backend will be selected empirically using measured evid
 - sustained behavior (what happens after 2 hours?)
 - integration complexity
 
-The key architectural insight: **the rest of the system doesn't care which perception backend you choose.** Swap out MediaPipe for MediaPipe 2.0, or Ultralytics, or future tech—the interaction semantics remain identical.
+The key architectural insight: **the rest of the system doesn't care which perception backend is selected.** Apple Vision is currently the provisional Phase 1 backend, and the perception adapter preserves the ability to replace it without changing interaction semantics.
 
 ---
 
@@ -129,17 +129,14 @@ Plus: queue age, frame drops, jitter, CPU/GPU/memory usage, thermal behavior.
 
 ### Phase 1 — Visual Interaction (Current)
 - Webcam acquisition ✅
-- Hand perception (pending)
-- Gesture/intent (pending)
-- Single & two-hand interaction (pending)
+- Hand perception ✅
+- Gesture/interaction ✅
+- Single & two-hand interaction ✅
 
-Live two-hand mapping: a two-hand gesture locks on the first significant motion
-(radial distance change >= 0.03 selects SCALE; midpoint-X change >= 0.03 selects
-ROTATE, with SCALE winning ties). ROTATE uses horizontal midpoint displacement
-at 1.0 radian per normalized screen-width and a 0.005 deadzone; vertical motion
-does not rotate. The lock lasts until two-hand tracking ends.
+Live interaction mapping: one open hand translates; one hand with a thumb/index pinch rotates through horizontal hand displacement at 1.0 radian per normalized screen-width with a 0.005 horizontal deadzone; two non-pinching hands scale from wrist distance. Pinch uses a 0.06 enter threshold and 0.075 exit threshold with hysteresis. Vertical movement does not rotate, and pinching suppresses translation for that frame.
+
 - Arbitrary 3D content support ✅ (contract-level)
-- Target: Measured baseline on MacBook Air M5
+- Target: Characterize the practical performance ceiling and complete Phase 1 exit evidence on MacBook Air M5
 
 ### Phase 2 — Sensorized Wearable Input
 - Physical wearable device for complementary sensing
@@ -164,7 +161,7 @@ does not rotate. The lock lasts until two-hand tracking ends.
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/tony-stark-spatial-interaction-system.git
+git clone https://github.com/neural-agi/Tony-Stark-Spatial-Interaction-System.git
 cd tony-stark-spatial-interaction-system
 
 # Create virtual environment
@@ -174,7 +171,7 @@ source .venv/bin/activate
 # Install the local package (no runtime dependencies)
 python3 -m pip install -e .
 
-# Run tests (no camera required)
+# Run deterministic tests (no camera required)
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
@@ -193,7 +190,7 @@ PYTHONPATH=src python3 -m unittest tests.test_geometry -v
 ### Build & Run (M5 Hardware)
 
 ```bash
-# Requires a matching macOS/Xcode Swift toolchain and M5 hardware.
+# Requires a matching macOS/Xcode Swift toolchain and the target MacBook Air M5.
 # Build the helper from the repository root:
 mkdir -p native/CameraCapture.app/Contents/MacOS
 swiftc -O -module-cache-path .build/module-cache -o native/CameraCapture.app/Contents/MacOS/CameraCapture native/CameraCapture.swift -framework AVFoundation -framework Foundation -framework AppKit
@@ -217,9 +214,12 @@ tony-stark-spatial-interaction-system/
 │   ├── assets.py                # .glb/.gltf/.obj support
 │   ├── display.py               # Rendering abstraction
 │   └── instrumentation.py       # Observability & tracing
-├── native/                      # Native platform code
-│   └── CameraCapture.swift      # macOS AVFoundation impl
-├── tests/                       # 31+ deterministic tests
+├── native/                      # Native macOS platform code
+│   ├── CameraCapture.swift      # macOS AVFoundation acquisition
+│   ├── VisionPerception.swift   # Apple Vision hand perception
+│   ├── SpatialInteraction.swift # Live camera/Vision/interaction host
+│   └── SyntheticDemo.swift      # Native synthetic renderer
+├── tests/                       # 37+ deterministic tests
 │   ├── test_acquisition.py
 │   ├── test_interaction.py
 │   ├── test_geometry.py
@@ -227,7 +227,12 @@ tony-stark-spatial-interaction-system/
 │   ├── test_contracts.py
 │   └── ...
 ├── tools/                       # Development utilities
-│   └── acquisition_smoke.py
+│   ├── acquisition_smoke.py
+│   ├── acquisition_baseline.py
+│   ├── perception_smoke.py
+│   ├── vision_replay.py
+│   ├── live_demo.py
+│   └── synthetic_demo.py
 ├── docs/                        # Technical documentation
 │   ├── PHASE1_AUDIT.md
 │   ├── PERFORMANCE_CONTRACT.md
@@ -306,7 +311,7 @@ Camera Frame ID: frame-000512
   → Perception: hand landmarks extracted at 8ms
   → State: filtered & smoothed at 3ms
   → Gesture: "pinch" detected with confidence 0.94
-  → Interaction: object rotated 15° around Y
+  → Interaction: object rotated 15° around Z
   → Scene: object state committed, revision 512
   → Render: GPU processed in 4ms
   → Display: frame presented at 48.3ms (end-to-end)
@@ -351,13 +356,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 | Aspect | Status | Evidence |
 |--------|--------|----------|
 | Native macOS build | ✅ Complete | Swift code compiles |
-| M5 camera validation | ⏳ Pending | Not yet tested on target |
-| Camera capability characterization | ⏳ Pending | Depends on M5 access |
-| Acquisition benchmarking | ⏳ Pending | Depends on M5 hardware |
-| Sustained thermal behavior | ⏳ Pending | Requires real hardware |
-| Phase 1 exit gate | ⏳ Pending | Requires M5 baseline |
+| M5 camera validation | ✅ Complete | Real MacBook Air Camera observations validated |
+| Camera capability characterization | 🟡 Partial | Real hardware cadence characterized; capability enumeration discrepancies remain |
+| Acquisition benchmarking | 🟡 Partial | 5s, 10s, 30s, lag, and configuration baseline artifacts exist; sustained Phase 1 characterization remains |
+| Sustained thermal behavior | ⏳ Pending | GPU/thermal measurements remain unavailable in current instrumentation |
+| Phase 1 exit gate | ⏳ Pending | Performance, robustness, and final evidence remain |
 
-**Immediate next milestone:** Get this running on MacBook Air M5, measure camera baseline, establish reproducible performance envelope.
+**Immediate next milestone:** Complete sustained live performance characterization, render-rate export, latency/jitter/drop evidence, resource measurements, robustness validation, and the Phase 1 exit evidence package.
 
 ---
 
@@ -372,16 +377,16 @@ This project makes an explicit performance contract:
 - Interaction update → render: **< 16ms** (60 FPS)
 - Sustained operation: **> 2 hours** without performance degradation
 
-**Currently:** Deterministic tests pass. Hardware validation pending.
+**Currently:** 37 deterministic tests pass, real M5 camera/Vision/live interaction validation is operational, and performance characterization is in progress.
 
 ---
 
 ## Known Limitations
 
 **Intentionally unresolved:**
-- M5 hardware validation (primary blocker)
-- Perception backend selection (deferred until M5 baseline exists)
-- Live hand tracking (requires perception)
+- Complete Phase 1 sustained performance and robustness validation
+- Perception backend remains provisionally selected as Apple Vision pending broader comparative evaluation
+- Sustained live hand-tracking characterization and robustness validation
 - Some affine transform cases (require matrix representation)
 
 **Not limitations, just deferred:**
@@ -441,7 +446,7 @@ The goal is not to prove that spatial interaction *can* be done (it obviously ca
 
 | Aspect | Typical Approach | This Project |
 |--------|-----------------|--------------|
-| **Perception** | Use MediaPipe, assume it works | Select empirically after M5 baseline |
+| **Perception** | Use MediaPipe, assume it works | Apple Vision (provisional), evaluated by measurement |
 | **Performance metric** | FPS | End-to-end latency by stage |
 | **Architecture** | Monolithic demo | Modular, replaceable components |
 | **Buffering** | Unbounded queue (hidden latency) | Bounded, tracked, measurable |
@@ -453,12 +458,12 @@ The goal is not to prove that spatial interaction *can* be done (it obviously ca
 
 ## Gallery & Examples
 
-*Screenshots and demos coming with M5 hardware validation.*
+*Live screenshots and recordings are now available from the validated M5 hardware pipeline; sustained benchmark artifacts are still being expanded.*
 
 Expected artifacts:
 - Single-hand object manipulation
-- Two-hand rotation & scaling
-- Gesture recognition (pinch, swipe, rotate)
+- Two-hand scaling and pinch-based one-hand rotation
+- Pinch-based rotation and deterministic spatial interaction
 - Arbitrary 3D model support
 - Performance benchmarks by stage
 
@@ -467,13 +472,13 @@ Expected artifacts:
 ## FAQ
 
 **Q: Why not just use MediaPipe?**
-A: We will—after measuring whether it's actually the right choice. Early commitment without data is how you end up optimizing the wrong thing.
+A: Apple Vision is currently the provisional Phase 1 backend. The perception adapter keeps the backend replaceable, while further evaluation is driven by measured performance, stability, and robustness evidence.
 
 **Q: Why only macOS M5?**
-A: Phase 1 focuses on *one* well-characterized platform. Porting to other hardware (Windows, Linux, other ARM chips) comes after we understand the M5 baseline.
+A: Phase 1 focuses on *one* well-characterized platform: the MacBook Air M5. Porting to other hardware comes after the M5 baseline and Phase 1 evidence are complete.
 
 **Q: When will it be ready?**
-A: Phase 1 exits when we have: (1) M5 hardware baseline, (2) live hand perception, (3) reproducible performance measurements, (4) honest performance contract. That's weeks/months away, not days.
+A: Phase 1 exits when functionality, instrumentation, sustained performance characterization, reliability, validation, and documentation evidence satisfy the defined exit gate.
 
 **Q: Can I contribute?**
 A: Yes. See [CONTRIBUTING.md](CONTRIBUTING.md). We need performance measurement, hardware testing, perception evaluation, and documentation help.
@@ -488,11 +493,11 @@ A: No. It's a spatial interaction system. You can render to any output (3D viewe
 If you're building on this work for research:
 
 ```bibtex
-@software{tony-stark-2024,
-  title={Tony Stark Spatial Interaction System},
-  author={Your Name},
-  year={2024},
-  url={https://github.com/your-username/tony-stark-spatial-interaction-system}
+@software{tony-stark-spatial-interaction-system,
+  title={Tony Stark-Inspired Spatial Interaction System},
+  author={Paranjay Das},
+  year={2026},
+  url={https://github.com/neural-agi/Tony-Stark-Spatial-Interaction-System}
 }
 ```
 
@@ -506,19 +511,19 @@ If you're building on this work for research:
 
 ## Roadmap
 
-### Q4 2024 (Phase 1)
-- [ ] M5 hardware validation
-- [ ] Camera baseline characterization
-- [ ] Perception backend evaluation
-- [ ] Live hand perception implementation
+### Phase 1 (Current)
+- [x] M5 hardware validation
+- [x] Camera baseline characterization
+- [x] Initial Apple Vision backend selection and hardware validation
+- [x] Live hand perception implementation
 - [ ] Phase 1 exit evidence
 
-### Q1 2025 (Phase 2)
+### Phase 2 (After Phase 1 Exit)
 - [ ] Wearable sensor firmware
 - [ ] Temporal alignment
 - [ ] Sensor fusion
 
-### Q2+ 2025 (Phase 3)
+### Phase 3 (After Phase 2)
 - [ ] Intelligent intent interpretation
 - [ ] Temporal gesture learning
 - [ ] Multimodal interaction
@@ -544,8 +549,8 @@ If you're building on this work for research:
 
 **Built by engineers who think latency matters and handwaving about "it's fast" isn't a performance metric.**
 
-Current acquisition status: the native helper builds on the target arm64 MacBook Air M5, but the first hardware smoke run was blocked by macOS camera authorization (`camera authorization denied`). No frame-delivery or performance result is claimed.
+Current acquisition status: the native helper is signed for arm64 and real MacBook Air Camera frame delivery has been validated. Acquisition baselines include approximately 30 FPS source cadence under representative runs, with cadence variability and sustained performance still being characterized.
 
-Latest acquisition status: camera authorization is granted and short real-frame validation has succeeded. Evidence is recorded in `ACQUISITION.md` and `benchmarks/results/`; this is not sustained performance validation and does not open the perception gate.
+Latest live status: Apple Vision hand perception and the native live interaction pipeline are operational on real hardware. Two-hand scaling and pinch-based rotation are implemented, while sustained performance, robustness, and final Phase 1 exit evidence remain incomplete.
 
 *"The goal is not to make the fastest demo. The goal is to build a spatial interaction system whose performance, limitations, and architectural decisions can be measured and defended."*
