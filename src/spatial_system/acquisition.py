@@ -43,7 +43,7 @@ class MacOSAVFoundationSource:
     def __init__(self, configuration, helper_path=None):
         if platform.system()!="Darwin": raise AcquisitionError(AcquisitionErrorCode.UNAVAILABLE,"AVFoundation backend requires macOS")
         self.configuration=configuration
-        helper=pathlib.Path(helper_path or pathlib.Path(__file__).parents[2]/"native"/"CameraCapture")
+        helper=pathlib.Path(helper_path or pathlib.Path(__file__).parents[2]/"native"/"CameraCapture.app"/"Contents"/"MacOS"/"CameraCapture")
         if not helper.is_file(): raise AcquisitionError(AcquisitionErrorCode.INITIALIZATION,f"native AVFoundation helper not built: {helper}")
         try:
             self.process=subprocess.Popen([str(helper),json.dumps(configuration.__dict__)],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -56,6 +56,10 @@ class MacOSAVFoundationSource:
         if not line:
             code=AcquisitionErrorCode.READ if self.process.poll() not in (None,0) else AcquisitionErrorCode.TERMINATED
             detail="native camera helper failed" if code is AcquisitionErrorCode.READ else "native camera stream terminated"
+            stderr=getattr(self.process,"stderr",None)
+            if stderr is not None:
+                diagnostic=stderr.read().decode("utf-8",errors="replace").strip()
+                if diagnostic: detail += f": {diagnostic}"
             raise AcquisitionError(code,detail)
         try:
             header=json.loads(line); required={"frame_id","source_id","sequence","timestamp_ns","timestamp_domain","timestamp_origin","width","height","pixel_format","orientation","mirrored","payload_size","bytes_per_row"}
