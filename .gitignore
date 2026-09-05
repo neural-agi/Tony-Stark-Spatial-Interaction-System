@@ -1,3 +1,8 @@
+.build/
+native/CameraCapture
+native/CameraCapture.app/
+native/SyntheticDemo
+src/*.egg-info/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -18,5 +23,6 @@ Thumbs.db
 # Generated benchmark/runtime artifacts
 benchmarks/results/
 phase1/benchmarks/results/
+benchmarks/results/
 *.prof
 *.pstats

@@ -7,3 +7,4 @@
 - Rationale: Candidates must be compared for latency, throughput, stability, jitter, continuity, loss/recovery, one/two-hand behavior, difficult visual conditions, CPU/GPU/memory cost, sustained behavior, and integration complexity.
 - Consequences: Adapters must emit canonical observations only. A candidate decision requires reproducible scenario/configuration metadata and benchmark evidence.
 - Status: Proposed, 2026-09-02; remains provisional until candidates are benchmarked.
+- Evaluation implementation: Apple Vision `VNDetectHumanHandPoseRequest` via the native macOS `Vision` framework (macOS 26.6.2 SDK), isolated in `native/VisionPerception.swift` and adapted to canonical contracts by `VisionPerceptionAdapter`. This is an evaluation candidate, not an accepted project standard; no third-party CV dependency was installed. Acceptance remains provisional until comparative latency, stability, difficult-condition, resource, and sustained measurements exist.
