@@ -1,538 +1,335 @@
-# Tony Stark Spatial Interaction System
+# Tony Stark-Inspired Spatial Interaction System
 
-> **Real-time spatial hand interaction inspired by sci-fi, built on engineering rigor. Webcam only. Measurable. Reproducible.**
+> A modular research platform for real-time, hand-tracked spatial interaction — for engineers and researchers who want performance claims backed by measurements, not demo reels.
 
-[![Tests Passing](https://img.shields.io/badge/tests-31%20passing-brightgreen)](tests/)
-[![Platform](https://img.shields.io/badge/platform-macOS%20M5-blue)](docs/PHASE1_AUDIT.md)
-[![Stage](https://img.shields.io/badge/stage-Phase%201%20%7C%20Acquisition%20Ready-orange)](docs/)
-[![License](https://img.shields.io/badge/license-TBD-lightgrey)]()
+![Status](https://img.shields.io/badge/status-phase_1_acquisition-yellow) ![Platform](https://img.shields.io/badge/platform-macOS_Apple_Silicon-lightgrey) ![Stack](https://img.shields.io/badge/stack-Python_and_Swift-blue)
 
----
+*Not affiliated with Marvel or Disney — "Tony Stark" is used here only as shorthand for a familiar interface style. Everything below is real, in-progress engineering, independently measured on real hardware.*
 
-## The Problem
+## Table of Contents
 
-You've seen Tony Stark pinch, rotate, and manipulate 3D objects in mid-air. It looks like magic. But real-time spatial interaction on consumer hardware with **low latency, high responsiveness, and measurable performance** is genuinely hard.
+- [Where This Stands](#where-this-stands)
+- [Why This Exists](#why-this-exists)
+- [Why This Approach](#why-this-approach)
+- [Quick Start](#quick-start)
+- [What Phase 1 Is Building Toward](#what-phase-1-is-building-toward)
+- [Architecture](#architecture)
+- [Performance Engineering](#performance-engineering)
+- [Coordinate Systems and Transforms](#coordinate-systems-and-transforms)
+- [Assets](#assets)
+- [Observability](#observability)
+- [Testing](#testing)
+- [Requirements](#requirements)
+- [Repository Structure](#repository-structure)
+- [Documentation and Engineering Records](#documentation-and-engineering-records)
+- [Development Philosophy](#development-philosophy)
+- [Roadmap](#roadmap)
+- [Current Limitations](#current-limitations)
+- [Contributing](#contributing)
+- [License](#license)
+- [Next Step](#next-step)
 
-Most hand-tracking demos:
-- ✗ Start with a prebuilt library (MediaPipe, etc.) and hope it works
-- ✗ Measure only FPS, not actual latency or jitter
-- ✗ Break when conditions change
-- ✗ Can't tell you *where* the slowness actually is
-- ✗ Treat perception as a black box
+## Where This Stands
 
-**This project does none of that.**
+**Phase 1 (acquisition foundation) is in progress. No Phase 1 completion or MacBook Air M5 performance claim is made yet.**
 
----
+What's real today: versioned typed system contracts, deterministic geometry/interaction/scene semantics, a working native macOS (AVFoundation) camera path *and* a deterministic synthetic path, bounded acquisition buffering with drop/stale accounting, runtime instrumentation, and 31 deterministic tests — all passing.
 
-## What This Actually Is
+What isn't real yet: the native camera path hasn't been validated on the actual target M5 hardware, there's no hand perception, gesture recognition, or live interaction runtime, and no perception backend has been selected. See [Roadmap](#roadmap) for the exact task-by-task state.
 
-A **low-latency, hand-driven spatial interaction system** built from first principles:
+| Phase | Focus | Status |
+|---|---|---|
+| 1 — Visual Interaction | Webcam acquisition → hand perception → gesture-driven 3D manipulation | In progress (acquisition stage) |
+| 2 — Sensorized Wearable Input | Complementary wearable sensing, fused with vision | Not started |
+| 3 — Intelligent Interaction | Multimodal, context-aware intent interpretation | Not started |
 
-1. **Strict architectural boundaries** — sensing, perception, state, gesture, interaction, scene, rendering are all independently replaceable
-2. **Measured performance** — latency broken down stage-by-stage, not just "FPS go brrr"
-3. **Explicit semantics** — coordinate spaces, timestamps, transforms, validity, confidence are all explicit, never implicit
-4. **Reproducible baselines** — bounded buffering, sequence tracking, drop accounting mean results actually repeat
-5. **Deterministic tests** — 31+ tests pass without touching hardware; hardware-specific tests are separate
-6. **Honest limitations** — unresolved problems are documented, not hidden
+## Why This Exists
 
-**Current state:** Phase 1 acquisition foundation is complete and tested. Ready for M5 hardware validation.
+Webcam hand-tracking demos are easy to make impressive and easy to make dishonest. A gesture-controlled 3D viewer built in a weekend can look exactly as convincing on camera as one with a genuinely low-latency, characterized real-time pipeline underneath — until someone tries to build on top of it and discovers the responsiveness was never actually measured.
 
----
+This project exists to find out, with real measurements instead of a demo reel, how far a webcam-only pipeline can be pushed on real consumer hardware: what the true observation-to-action latency is, where it comes from, how it behaves under sustained use, and what breaks first.
 
-## The Architecture
+## Why This Approach
 
-```
-Input → Acquisition → Perception → State → Intent → Interaction → Scene → Render
+The obvious shortcut looks like this:
 
-                    ┌────────────────────┐
-                    │   Observability    │
-                    │ (traces/metrics)   │
-                    └────────────────────┘
-                               │
-                               ↓
-          Every stage is traceable, every frame is accounted for
-```
-
-**Why this matters:** If you need to know why interaction feels sluggish, you can actually find out instead of guessing.
-
-### What's Built
-
-| Component | Status |
-|-----------|--------|
-| Contracts & types | ✅ Complete |
-| Geometry & transforms | ✅ Complete |
-| Scene/content abstraction | ✅ Complete |
-| Bounded acquisition | ✅ Complete |
-| Synthetic acquisition (testing) | ✅ Complete |
-| Native macOS AVFoundation | ✅ Complete (untested on M5) |
-| Acquisition protocol & tests | ✅ 31/31 passing |
-| Hand perception | ⏳ Pending perception selection |
-| State estimation | ⏳ Pending perception |
-| Live interaction | ⏳ Pending perception |
-| Phase 1 exit evidence | ⏳ Pending M5 validation |
-
-### What's NOT Built (Yet)
-
-- Live hand perception (intentionally deferred until M5 baseline exists)
-- Performance benchmarks on target hardware
-- Gesture recognition
-- Wearable sensor integration (Phase 2)
-
-**No Phase 1 completion claim is made until M5 validation exists.**
-
----
-
-## Why NOT MediaPipe (Or Why The Architecture Matters)
-
-A faster path would be:
-
-```
-Webcam → MediaPipe → Gesture Detection → 3D Renderer → Demo
+```mermaid
+flowchart LR
+    W[Webcam] --> HT[Hand-tracking library] --> GD[Gesture detection] --> R[3D renderer] --> D[Demo]
 ```
 
-That produces something impressive in a day. **This project doesn't do that.**
+That produces something that looks good in a GIF. It doesn't produce a system whose latency, jitter, tracking loss, and recovery behavior anyone has actually measured.
 
-Instead, the perception backend will be selected empirically using measured evidence across:
-- latency / throughput
-- landmark stability
-- jitter under different conditions
-- resource usage (CPU/GPU/memory)
-- sustained behavior (what happens after 2 hours?)
-- integration complexity
+This project treats the perception backend as a **replaceable subsystem**, to be chosen later based on evidence:
 
-The key architectural insight: **the rest of the system doesn't care which perception backend you choose.** Swap out MediaPipe for MediaPipe 2.0, or Ultralytics, or future tech—the interaction semantics remain identical.
+| Dimension | What gets measured |
+|---|---|
+| Speed | Latency, throughput |
+| Stability | Positional/rotational/scale jitter, landmark and state stability |
+| Continuity | Temporal continuity, tracking loss and recovery |
+| Robustness | Behavior under difficult visual conditions |
+| Cost | CPU/GPU/resource usage, sustained (not just burst) behavior |
+| Integration | Integration complexity |
 
----
-
-## Performance Matters (For Real)
-
-This isn't a "let's optimize later" project.
-
-**Performance model distinguishes:**
-- Capture time (when the sensor grabbed the frame)
-- Acquisition time (when the system received it)
-- Perception time (hand landmark extraction)
-- State estimation time (filtering/smoothing)
-- Gesture interpretation time
-- Interaction update time (what changed in the scene)
-- Rendering time (GPU work)
-- Presentation time (when it hit the display)
-- **Observation-to-action latency** (the one you actually feel)
-
-Plus: queue age, frame drops, jitter, CPU/GPU/memory usage, thermal behavior.
-
-**Why?** Because 60 FPS at 200ms latency feels worse than 30 FPS at 30ms latency. FPS is a terrible proxy for responsiveness.
-
----
-
-## Phase Roadmap
-
-### Phase 1 — Visual Interaction (Current)
-- Webcam acquisition ✅
-- Hand perception (pending)
-- Gesture/intent (pending)
-- Single & two-hand interaction (pending)
-- Arbitrary 3D content support ✅ (contract-level)
-- Target: Measured baseline on MacBook Air M5
-
-### Phase 2 — Sensorized Wearable Input
-- Physical wearable device for complementary sensing
-- Temporal alignment & sensor fusion
-- Cross-modal consistency validation
-
-### Phase 3 — Intelligent Interaction
-- Multimodal intent understanding
-- Temporal gesture learning
-- Context-aware interaction
-- Higher-level command inference
-
----
+The perception technology choice stays **intentionally undecided** until those measurements exist — see [`TDR-002-perception-selection.md`](./TDR-002-perception-selection.md).
 
 ## Quick Start
 
-### Prerequisites
-- **macOS** (Sonoma or later)
-- **Python 3.11+**
-- **MacBook Air M5** (for actual hand tracking; works on other hardware for development/testing)
-
-### Installation
+There's no interactive demo yet — Phase 1 hand perception isn't implemented. What you *can* run today is the deterministic test suite, which exercises the real contracts, geometry, interaction, scene, and acquisition logic without needing a camera.
 
 ```bash
-git clone https://github.com/your-username/tony-stark-spatial-interaction-system.git
-cd tony-stark-spatial-interaction-system
-
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run tests (no camera required)
-pytest tests/ -v
+git clone <repository-url>
+cd Tony-Stark-Spatial-Interaction-System
+pip install -e .
+pytest
 ```
 
-### Run Deterministic Tests
+Expected result:
 
-```bash
-# All tests (no hardware needed)
-pytest tests/ -v
-
-# Specific test category
-pytest tests/test_acquisition.py -v
-pytest tests/test_interaction.py -v
-pytest tests/test_geometry.py -v
+```text
+31 passed
 ```
 
-### Build & Run (M5 Hardware)
+## What Phase 1 Is Building Toward
 
-```bash
-# Requires native Swift build and M5 hardware
-make build-native
-python -m spatial_system.main
+None of this is live yet, but it's what the architecture is already built to support:
+
+- **Interaction** — selection, translation, rotation, and scaling, single-hand and two-hand
+- **Content** — arbitrary supported 3D assets (`.glb`, `.gltf`, `.obj`), not one demo object
+- **Replaceability** — swap the perception backend, renderer, or camera source without rewriting interaction or scene logic
+- **Honesty by construction** — unsupported transforms and unavailable measurements fail explicitly instead of returning a plausible-looking wrong answer
+
+## Architecture
+
+```mermaid
+flowchart TD
+    Cam[Camera / Sensor] --> Acq[Acquisition]
+    Acq --> RF[Canonical RawFrame]
+    RF --> PA[Perception Adapter]
+    PA --> VO[Canonical VisualObservation]
+    VO --> SE[State Estimation]
+    SE --> GI[Gesture / Intent]
+    GI --> IS[Interaction Semantics]
+    IS --> SO[Scene / Object State]
+    SO --> PR[Presentation / Rendering]
 ```
 
----
+The one rule that matters: **perception-specific details never leak downstream.** A future perception backend can use any CV framework or model it wants — everything past the Perception Adapter only ever sees canonical contracts. In practice: interaction logic doesn't know about the renderer, scene state doesn't know about the camera implementation, asset loading doesn't define interaction semantics, and instrumentation observes the system without becoming hidden correctness state.
 
-## Project Structure
+### Typed Contracts
 
-```
-tony-stark-spatial-interaction-system/
-├── src/spatial_system/          # Core system
-│   ├── contracts.py             # Type definitions & versioning
-│   ├── acquisition.py           # Camera → RawFrame pipeline
-│   ├── perception.py            # Perception adapter contracts
-│   ├── geometry.py              # Transforms, quaternions, coordinate spaces
-│   ├── interaction.py           # Gesture → scene updates
-│   ├── scene.py                 # 3D object state
-│   ├── assets.py                # .glb/.gltf/.obj support
-│   ├── display.py               # Rendering abstraction
-│   └── instrumentation.py       # Observability & tracing
-├── native/                      # Native platform code
-│   └── CameraCapture.swift      # macOS AVFoundation impl
-├── tests/                       # 31+ deterministic tests
-│   ├── test_acquisition.py
-│   ├── test_interaction.py
-│   ├── test_geometry.py
-│   ├── test_scene.py
-│   ├── test_contracts.py
-│   └── ...
-├── tools/                       # Development utilities
-│   └── acquisition_smoke.py
-├── docs/                        # Technical documentation
-│   ├── PHASE1_AUDIT.md
-│   ├── PERFORMANCE_CONTRACT.md
-│   ├── ACQUISITION.md
-│   └── TDR-*.md                 # Technical Decision Records
-└── pyproject.toml
+| Layer | Contracts |
+|---|---|
+| Acquisition / Perception | `RawFrame`, `VisualObservation` |
+| State / Intent | `HandLandmarks`, `HandState`, `GestureHypothesis` |
+| Interaction / Scene / Render | `InteractionEvent`, `SceneObjectState`, `PresentationState` |
+| Observability | `MetricSample`, `TraceSpan` |
+
+Every contract carries source identity, timestamps, coordinate space, units, validity, confidence, freshness, continuity, traceability, and schema/version — with **validity and confidence tracked as separate concepts** on purpose.
+
+## Performance Engineering
+
+FPS alone is never treated as a proxy for responsiveness. The performance model separately tracks capture, acquisition, perception, state-estimation, gesture/intent, interaction/scene-update, rendering, and presentation time; observation-to-action latency; queue age, frame drops, and jitter; CPU/GPU/memory usage; and sustained and thermal behavior where measurable.
+
+### Acquisition Pipeline
+
+```mermaid
+flowchart LR
+    NC[Native Camera] --> FS[FrameSource] --> AS[AcquisitionService] --> BB[Bounded Buffer] --> RF[Canonical RawFrame]
 ```
 
----
+Two acquisition sources exist today: a **synthetic** source for deterministic, replay-style tests, and a **native macOS** source — a Swift/AVFoundation helper that owns camera discovery, permissions, capture-session setup, frame delivery, and native timestamp/metadata extraction. Native AVFoundation objects never cross the acquisition boundary; the Python layer only handles canonicalization, sequencing, bounded buffering, drop/stale accounting, and instrumentation.
 
-## Technical Highlights
+### Timing Model
 
-### Coordinate Spaces (Explicit)
-Every spatial value knows its coordinate space. No silent transforms:
-```python
-# ✅ Correct: explicit coordinate spaces
-image_coords = ImageCoordinates(x=100, y=200)
-camera_coords = to_camera_space(image_coords)
-world_coords = to_world_space(camera_coords)
+Source capture time and application receipt time are tracked as separate, explicit fields — source timestamp, timestamp domain and origin, application timing, sequence numbers, and trace identifiers all survive the full pipeline. No latency calculation is allowed to silently subtract incompatible clock domains; where a platform can't provide trustworthy cross-clock correlation, the measurement is recorded as **unavailable**, never invented.
 
-# ❌ Not allowed: mixing spaces silently
-world_coords = image_coords + some_magic_number
-```
+### Buffering Strategy
 
-### Contracts (Versioned, Typed)
-Every inter-system message is a versioned contract:
-```python
-class VisualObservation(VersionedContract):
-    version: Literal["1.0"]
-    source_timestamp: int           # ns since epoch (source clock)
-    receipt_timestamp: int          # ns since epoch (app clock)
-    sequence_number: int            # monotonic, detects reordering
-    hand_landmarks: List[Landmark]  # never None; validity is separate
-    validity: Validity              # explicitly indicates if data is usable
-    confidence: float               # not the same as validity
-```
+The acquisition path uses bounded buffering with explicit drop accounting — current and maximum queue depth, dropped/stale frames, sequence gaps, duplicates, reordered frames, and queue age are all tracked. Latest-observation-wins behavior is used where it helps interactive responsiveness, and unbounded queues are intentionally avoided.
 
-### Bounded Buffering (Responsiveness)
-Interactive systems need responsiveness, not batch processing:
-```
-Queue Policy: Latest observation wins
-Max queue depth: 2 frames
-Tracking: drops, stale frames, reorders, duplicates
-Result: Measurable latency, no hidden queues
-```
+## Coordinate Systems and Transforms
 
-### Tests Without Hardware
-All acquisition tests run deterministically using synthetic frame sources:
-```bash
-pytest tests/test_acquisition.py -v
-# Validates protocol, buffering, sequencing WITHOUT camera
-```
+Spatial data uses explicit coordinate spaces: image, camera, hand/local, application/world, and object/local. Transforms are deterministic operations, not logic embedded inside gesture or rendering code, and quaternion-based rotation/composition is already supported.
 
----
+One deliberate limitation: the current TRS representation rejects combinations it can't correctly express — specifically, arbitrary non-uniform scaling combined with rotation, which needs a general affine/matrix representation instead. It fails explicitly rather than silently returning a mathematically invalid transform.
 
-## Coordinate Systems (Explained)
+## Assets
 
-The system distinguishes:
-- **Image coordinates** — pixel space (camera output)
-- **Camera coordinates** — 3D space relative to camera
-- **Hand/local coordinates** — relative to hand/object
-- **World/app coordinates** — application coordinate frame
-- **Object/local coordinates** — relative to specific object
-
-Transforms are deterministic, composable, and explicit. The system rejects mathematically invalid operations rather than returning garbage.
-
----
+Phase 1 targets generalized 3D content, not one demo object — the supported boundary currently covers `.glb`, `.gltf`, and `.obj`. Asset validation is a boundary check today, not a full model-processing pipeline, which keeps asset-specific concerns out of interaction semantics.
 
 ## Observability
 
-Every frame is traceable end-to-end:
+Every stage — source/frame, observation, state, gesture/event, scene revision, presentation frame — is tied together through traceable identifiers. Instrumentation covers monotonic timing, stage spans, queue measurements, frame/drop tracking, metric samples, statistical summaries, and benchmark metadata.
 
-```
-Camera Frame ID: frame-000512
-  → Acquisition: queued at 12ms, processed at 15ms
-  → Perception: hand landmarks extracted at 8ms
-  → State: filtered & smoothed at 3ms
-  → Gesture: "pinch" detected with confidence 0.94
-  → Interaction: object rotated 15° around Y
-  → Scene: object state committed, revision 512
-  → Render: GPU processed in 4ms
-  → Display: frame presented at 48.3ms (end-to-end)
-```
+The goal is to be able to answer *"where did the latency come from,"* not just *"why does it feel kinda slow."*
 
-Queries like *"where did the latency come from?"* have real answers.
+## Testing
 
----
-
-## Asset Support
-
-Supports arbitrary 3D content:
-- ✅ `.glb` (GLTF binary)
-- ✅ `.gltf` (GLTF text)
-- ✅ `.obj` (Wavefront OBJ)
-
-Asset validation happens at a strict boundary—keeps asset-specific concerns out of interaction logic.
-
----
-
-## Contributing
-
-This is a research-grade project. We welcome:
-- 🔬 Performance improvements backed by measurement
-- 🏗️ Architectural refinements with evidence
-- 🧪 Perception backend evaluations
-- 📊 Benchmarking & reproducibility work
-- 📝 Documentation improvements
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
-**Contributing requires:**
-- Deterministic tests for new features
-- Performance impact analysis
-- Architecture boundary preservation
-- Clear technical justification
-
----
-
-## Hardware Validation Status
-
-| Aspect | Status | Evidence |
-|--------|--------|----------|
-| Native macOS build | ✅ Complete | Swift code compiles |
-| M5 camera validation | ⏳ Pending | Not yet tested on target |
-| Camera capability characterization | ⏳ Pending | Depends on M5 access |
-| Acquisition benchmarking | ⏳ Pending | Depends on M5 hardware |
-| Sustained thermal behavior | ⏳ Pending | Requires real hardware |
-| Phase 1 exit gate | ⏳ Pending | Requires M5 baseline |
-
-**Immediate next milestone:** Get this running on MacBook Air M5, measure camera baseline, establish reproducible performance envelope.
-
----
-
-## Performance Contract
-
-This project makes an explicit performance contract:
-
-**Phase 1 Target (M5):**
-- Camera capture → perception → state → gesture: **< 35ms end-to-end**
-- Hand landmark jitter (RMS): **< 2 pixels**
-- Gesture recognition latency: **< 50ms**
-- Interaction update → render: **< 16ms** (60 FPS)
-- Sustained operation: **> 2 hours** without performance degradation
-
-**Currently:** Deterministic tests pass. Hardware validation pending.
-
----
-
-## Known Limitations
-
-**Intentionally unresolved:**
-- M5 hardware validation (primary blocker)
-- Perception backend selection (deferred until M5 baseline exists)
-- Live hand tracking (requires perception)
-- Some affine transform cases (require matrix representation)
-
-**Not limitations, just deferred:**
-- Phase 2 wearable sensor integration
-- Phase 3 intelligent intent interpretation
-
----
-
-## Technical Decision Records
-
-Philosophy: Major decisions are documented with context, evidence, and revision status.
-
-- **TDR-001:** Python stdlib foundation (vs. frameworks)
-- **TDR-002:** Perception backend selection strategy
-- **TDR-003:** Native macOS camera backend choice
-
-See [docs/](docs/) for full TDRs.
-
----
-
-## Observability & Benchmarking
-
-Built-in instrumentation:
-- Frame tracing with source timestamps
-- Stage-by-stage latency breakdown
-- Queue depth tracking & drop accounting
-- Statistical summaries (min/max/mean/p95)
-- Metadata for reproducibility
-
-**Example:**
-```python
-from spatial_system.instrumentation import PerformanceTrace
-
-trace = PerformanceTrace()
-# ... run interaction ...
-report = trace.generate_report()
-print(f"Observation-to-action latency (p95): {report.e2e_latency_p95_ms}ms")
-print(f"Dropped frames: {report.dropped_frame_count}")
-print(f"Queue age (max): {report.max_queue_age_ms}ms")
+```text
+tests/
+├── test_contracts.py
+├── test_geometry.py
+├── test_interaction.py
+├── test_scene.py
+├── test_assets.py
+├── test_display.py
+├── test_observability.py
+├── test_perception.py
+├── test_acquisition.py
+└── test_protocol.py
 ```
 
----
+**31 deterministic tests pass today**, covering contract invariants, coordinate transforms, quaternion behavior, interaction state transitions, scene state, asset validation, display boundaries, traceability, bounded buffering, sequence/drop semantics, acquisition protocol validation, and perception adapter contracts. Hardware-dependent tests are kept separate from this deterministic suite, and validation on the target M5 hasn't happened yet.
 
-## Research & Context
+## Requirements
 
-Spatial interaction is an active research area. This system is designed to be:
-- **Reproducible** — bounded buffering, explicit sequencing, deterministic tests
-- **Measurable** — latency broken down stage-by-stage, not aggregate FPS
-- **Improvable** — replaceable perception backend, extensible architecture
-- **Honest** — explicit about limitations, not hiding complexity
+- **Language/runtime:** Python (see `pyproject.toml` for the exact version pin) and Swift for the native camera helper.
+- **Full native path (camera + AVFoundation):** macOS only. The target hardware is a MacBook Air, Apple Silicon M5, 10-core CPU/GPU, 24 GB unified memory — not yet validated even on that machine from the current Windows development environment.
+- **Tests and synthetic acquisition:** platform-independent — no camera or macOS required.
 
-The goal is not to prove that spatial interaction *can* be done (it obviously can). The goal is to characterize *how well* it can be done on consumer hardware with clear engineering constraints.
+Building and running the native Swift helper is covered in [`ACQUISITION.md`](./ACQUISITION.md) rather than duplicated here.
 
----
+## Repository Structure
 
-## What Makes This Different
-
-| Aspect | Typical Approach | This Project |
-|--------|-----------------|--------------|
-| **Perception** | Use MediaPipe, assume it works | Select empirically after M5 baseline |
-| **Performance metric** | FPS | End-to-end latency by stage |
-| **Architecture** | Monolithic demo | Modular, replaceable components |
-| **Buffering** | Unbounded queue (hidden latency) | Bounded, tracked, measurable |
-| **Coordinate spaces** | Implicit, mixed | Explicit, typed, validated |
-| **Limitations** | Hidden or undocumented | Explicit & itemized |
-| **Testing** | Run on hardware | Deterministic tests + hardware validation |
-
----
-
-## Gallery & Examples
-
-*Screenshots and demos coming with M5 hardware validation.*
-
-Expected artifacts:
-- Single-hand object manipulation
-- Two-hand rotation & scaling
-- Gesture recognition (pinch, swipe, rotate)
-- Arbitrary 3D model support
-- Performance benchmarks by stage
-
----
-
-## FAQ
-
-**Q: Why not just use MediaPipe?**
-A: We will—after measuring whether it's actually the right choice. Early commitment without data is how you end up optimizing the wrong thing.
-
-**Q: Why only macOS M5?**
-A: Phase 1 focuses on *one* well-characterized platform. Porting to other hardware (Windows, Linux, other ARM chips) comes after we understand the M5 baseline.
-
-**Q: When will it be ready?**
-A: Phase 1 exits when we have: (1) M5 hardware baseline, (2) live hand perception, (3) reproducible performance measurements, (4) honest performance contract. That's weeks/months away, not days.
-
-**Q: Can I contribute?**
-A: Yes. See [CONTRIBUTING.md](CONTRIBUTING.md). We need performance measurement, hardware testing, perception evaluation, and documentation help.
-
-**Q: Is this a game engine?**
-A: No. It's a spatial interaction system. You can render to any output (3D viewer, game engine, UI framework, etc.) via the display abstraction.
-
----
-
-## Citation & Academic Use
-
-If you're building on this work for research:
-
-```bibtex
-@software{tony-stark-2024,
-  title={Tony Stark Spatial Interaction System},
-  author={Your Name},
-  year={2024},
-  url={https://github.com/your-username/tony-stark-spatial-interaction-system}
-}
+```text
+Tony-Stark-Spatial-Interaction-System/
+├── native/
+│   └── CameraCapture.swift
+├── src/
+│   └── spatial_system/
+│       ├── acquisition.py
+│       ├── assets.py
+│       ├── contracts.py
+│       ├── display.py
+│       ├── geometry.py
+│       ├── instrumentation.py
+│       ├── interaction.py
+│       ├── perception.py
+│       └── scene.py
+├── tests/
+│   ├── test_acquisition.py
+│   ├── test_assets.py
+│   ├── test_contracts.py
+│   ├── test_display.py
+│   ├── test_geometry.py
+│   ├── test_interaction.py
+│   ├── test_observability.py
+│   ├── test_perception.py
+│   ├── test_protocol.py
+│   └── test_scene.py
+├── tools/
+│   └── acquisition_smoke.py
+├── docs/
+├── experiments/
+├── PERFORMANCE_CONTRACT.md
+├── PHASE1_AUDIT.md
+├── PHASE1_EXIT_EVIDENCE.md
+├── PHASE1_IMPLEMENTATION_GATES.md
+├── PERCEPTION_EVALUATION.md
+├── ACQUISITION.md
+├── TDR-001-python-stdlib-foundation.md
+├── TDR-002-perception-selection.md
+├── TDR-003-camera-backend.md
+├── pyproject.toml
+└── README.md
 ```
 
----
+## Documentation and Engineering Records
 
-## License
+| Document | Covers |
+|---|---|
+| `PHASE1_AUDIT.md` | Audit of the current Phase 1 implementation state |
+| `PERFORMANCE_CONTRACT.md` | The performance measurement contract and exit criteria |
+| `PHASE1_EXIT_EVIDENCE.md` | Evidence required to declare Phase 1 complete |
+| `PHASE1_IMPLEMENTATION_GATES.md` | Gating criteria for Phase 1 milestones |
+| `PERCEPTION_EVALUATION.md` | Evaluation criteria and results for perception-backend selection |
+| `ACQUISITION.md` | Acquisition subsystem design, including native build details |
+| `TDR-001-python-stdlib-foundation.md` | Decision record: Python stdlib foundation |
+| `TDR-002-perception-selection.md` | Decision record: perception technology selection |
+| `TDR-003-camera-backend.md` | Decision record: camera backend choice |
 
-[License TBD]
+Technical Decision Records cover material architectural decisions and stay marked provisional wherever empirical validation is still pending.
 
----
+## Development Philosophy
+
+- **Measure before optimizing** — performance work follows measured bottlenecks, not intuition.
+- **Separate correctness from perception quality** — a tracking model can be confident and still produce data unsuitable for interaction.
+- **Keep boundaries replaceable** — camera backend, perception technology, renderer, and future sensors should all be swappable.
+- **Prefer explicit failure over silent corruption** — unsupported operations and unavailable measurements are represented explicitly.
+- **Treat sustained performance as real performance** — a short burst of high FPS isn't evidence of a stable interactive system.
+- **Reproducibility matters** — hardware experiments record enough metadata to make results comparable across runs.
 
 ## Roadmap
 
-### Q4 2024 (Phase 1)
-- [ ] M5 hardware validation
-- [ ] Camera baseline characterization
-- [ ] Perception backend evaluation
-- [ ] Live hand perception implementation
-- [ ] Phase 1 exit evidence
+### Phase 1 — Visual Interaction
 
-### Q1 2025 (Phase 2)
-- [ ] Wearable sensor firmware
-- [ ] Temporal alignment
-- [ ] Sensor fusion
+- [x] Architecture and contracts
+- [x] Deterministic interaction semantics
+- [x] Geometry and transforms
+- [x] Scene/content abstraction
+- [x] Instrumentation foundation
+- [x] Bounded acquisition
+- [x] Synthetic acquisition
+- [x] Native macOS AVFoundation implementation
+- [x] Acquisition protocol hardening
+- [x] Deterministic acquisition tests
+- [ ] Validate native backend on MacBook Air M5
+- [ ] Enumerate and characterize camera modes
+- [ ] Establish reproducible M5 acquisition baseline
+- [ ] Measure sustained acquisition behavior
+- [ ] Select perception technology empirically
+- [ ] Implement live hand perception
+- [ ] Implement state estimation
+- [ ] Implement live interaction
+- [ ] Complete Phase 1 exit evidence
 
-### Q2+ 2025 (Phase 3)
+### Phase 2 — Sensorized Wearable Input
+
+- [ ] Define wearable sensor architecture
+- [ ] Implement wearable firmware
+- [ ] Implement telemetry transport
+- [ ] Validate independent sensor streams
+- [ ] Implement temporal alignment
+- [ ] Implement sensor fusion
+- [ ] Benchmark fused interaction
+
+### Phase 3 — Intelligent Interaction
+
 - [ ] Intelligent intent interpretation
-- [ ] Temporal gesture learning
+- [ ] Temporal gesture understanding
 - [ ] Multimodal interaction
+- [ ] Context-aware interaction
+- [ ] Final system validation
 
----
+## Current Limitations
 
-## Stay Updated
+These are documented limitations, not hidden assumptions:
 
-- 📧 Watch releases for Phase 1 exit evidence
-- 🔔 Enable discussions for technical questions
-- 📖 Check [docs/](docs/) for decision records and technical deep-dives
+- Native macOS execution hasn't been validated from the Windows development environment yet.
+- Target M5 camera measurements don't exist yet.
+- Camera capability characterization is incomplete.
+- Native interruption/recovery behavior isn't fully validated.
+- The perception backend hasn't been selected.
+- Live hand perception isn't implemented.
+- Phase 1 performance completion hasn't been established.
+- Some general affine transform cases need a future matrix representation.
+- Asset validation is a boundary validator today, not a complete asset decoder.
 
----
+## Contributing
 
-## Questions?
+This is an early-stage, single-maintainer research project, and the core contracts and phase gates are still moving underneath it. If you want to contribute:
 
-- 🔬 Technical: Open an issue with label `question`
-- 🏗️ Architecture: See [docs/](docs/)
-- 🧪 Contributing: See [CONTRIBUTING.md](CONTRIBUTING.md)
-- 📊 Performance: See [PERFORMANCE_CONTRACT.md](docs/PERFORMANCE_CONTRACT.md)
+1. Set it up the same way as [Quick Start](#quick-start).
+2. Run `pytest` before opening a PR — it's the only enforced check right now.
+3. Open an issue or discussion first, especially for anything touching contracts, coordinate semantics, or the phase-gate structure, so changes don't collide with work already in flight.
 
----
+Formal lint/format tooling and a PR template aren't set up yet. [Roadmap](#roadmap) and [Current Limitations](#current-limitations) are the most honest source of "what's actually open" right now.
 
-**Built by engineers who think latency matters and handwaving about "it's fast" isn't a performance metric.**
+## License
 
-*"The goal is not to make the fastest demo. The goal is to build a spatial interaction system whose performance, limitations, and architectural decisions can be measured and defended."*
+No license is specified yet. Until one is added, standard copyright applies by default and the code isn't licensed for reuse. [choosealicense.com](https://choosealicense.com) is a reasonable starting point before this repository goes public.
+
+## Next Step
+
+Read [`PHASE1_AUDIT.md`](./PHASE1_AUDIT.md) and [`PERCEPTION_EVALUATION.md`](./PERCEPTION_EVALUATION.md) for the most current, most honest picture of where this stands — or open an issue if you're working on a similar low-latency perception problem and want to compare notes.
