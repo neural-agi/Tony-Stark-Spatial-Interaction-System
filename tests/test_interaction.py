@@ -1,10 +1,16 @@
 import unittest
 import math
 from tools.live_demo import signed_angle_delta, PinchRotationController, TwoHandScaleController
-from spatial_system.contracts import TimeRef
+from spatial_system.contracts import TimeRef, SceneObjectState
+from spatial_system.scene import Scene
+from spatial_system.geometry import Transform, Quaternion
 from spatial_system.interaction import *
 T=TimeRef(1,"test","mono")
 class InteractionTests(unittest.TestCase):
+ def test_pinch_rotation_does_not_require_live_cube_id(self):
+  scene=Scene({"object-2":SceneObjectState("object-2",None,Transform.identity("world"),True,True,"model")})
+  scene.apply(InteractionState().event("rotate","object-2",T,{"rotation":Quaternion(.70710678,0,0,.70710678)}))
+  self.assertNotEqual(scene.objects["object-2"].transform.rotation,Quaternion(1,0,0,0))
  def hand(self,wrist,pinch,ident="h"):
   lm=[(wrist,0,0)]*21; lm[4]=(wrist+pinch,0,0); lm[8]=(wrist,0,0); return {"hand_id":ident,"landmarks":lm,"confidence":1}
  def test_pinch_hysteresis_and_horizontal_rotation(self):
