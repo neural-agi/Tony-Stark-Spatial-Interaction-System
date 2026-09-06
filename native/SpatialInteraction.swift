@@ -5,19 +5,61 @@ import Foundation
 import Darwin
 import CoreGraphics
 import ImageIO
+import ModelIO
+
+let benchmarkMode = ProcessInfo.processInfo.environment["SPATIAL_BENCHMARK_MODE"] ?? "full"
+let benchmarkVisionEnabled = benchmarkMode != "acquisition"
+let benchmarkIPCEnabled = !(benchmarkMode == "acquisition" || benchmarkMode == "vision")
+let benchmarkRenderEnabled = benchmarkMode == "render" || benchmarkMode == "full"
+var benchmarkCaptureCount = 0
+var benchmarkVisionCount = 0
+var benchmarkIPCCount = 0
+var benchmarkRenderCount = 0
 
 FileHandle.standardError.write(("SPATIAL_DIAGNOSTIC stage=process_start pid=\(ProcessInfo.processInfo.processIdentifier) cwd=\(FileManager.default.currentDirectoryPath) argv=\(CommandLine.arguments)\n").data(using:.utf8)!)
 
+final class RuntimeAsset {
+    let vertices: [(Float,Float,Float)]
+    init?(path: String) {
+        let url=URL(fileURLWithPath:path); guard FileManager.default.fileExists(atPath:path) else { diagnostic("stage=asset_load result=missing path=\(path) format=\(url.pathExtension.lowercased())"); return nil }
+        let format=url.pathExtension.lowercased(); guard ["obj","gltf","glb"].contains(format) else { diagnostic("stage=asset_load result=unsupported path=\(path) format=\(format)"); return nil }
+        let asset=MDLAsset(url:url, vertexDescriptor:nil, bufferAllocator:nil); var found:[(Float,Float,Float)]=[]
+        func visit(_ object: MDLObject) { if let mesh=object as? MDLMesh, let data=mesh.vertexAttributeData(forAttributeNamed: MDLVertexAttributePosition) { let count=mesh.vertexCount; let stride=data.stride; let ptr=data.dataStart.bindMemory(to:Float.self,capacity:count*3); for i in 0..<count { let p=ptr.advanced(by:i*stride/MemoryLayout<Float>.size); found.append((p[0],p[1],p[2])) } }; for child in object.children.objects { visit(child) } }
+        for object in asset.childObjects(of: MDLObject.self) { visit(object) }
+        guard !found.isEmpty else { diagnostic("stage=asset_load result=no_geometry path=\(path) format=\(format)"); return nil }; vertices=found; diagnostic("stage=asset_load result=loaded path=\(path) format=\(format) geometry=\(found.count)")
+    }
+}
+
 final class View: NSView {
+    static weak var shared: View?
     var presentation: [String: Any] = [:]
     var hands: [[[Double]]] = []
     var renderSamples:[UInt64]=[]
+    var renderRate: Double = 0
+    var assets:[String:RuntimeAsset]=[:]
+    override init(frame frameRect: NSRect) { super.init(frame:frameRect); View.shared=self }
+    required init?(coder: NSCoder) { super.init(coder:coder); View.shared=self }
     override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    override func keyDown(with event: NSEvent) {
+        let key=event.charactersIgnoringModifiers?.lowercased() ?? ""
+        if ["1","2","3","r","a","h"].contains(key) { emit(["type":"control","key":key]) }
+    }
     override func draw(_ rect: NSRect) {
+        guard benchmarkRenderEnabled else { return }
+        benchmarkRenderCount += 1
+        let renderFrame = presentation["frame_id"] as? String
+        let renderSource = presentation["source_id"] as? String
+        let renderSequence = presentation["sequence"] as? Int
+        let renderIdentity = (renderFrame != nil && renderSource != nil && renderSequence != nil) ? "authoritative" : "missing_native_identity"
+        diagnostic("stage=renderer_draw count=\(benchmarkRenderCount) render_timestamp_ns=\(DispatchTime.now().uptimeNanoseconds) frame_id=\(renderFrame ?? "<nil>") source_identity=\(renderSource ?? "<nil>") sequence=\(renderSequence.map(String.init) ?? "<nil>") identity_status=\(renderIdentity)")
+        emit(["type":"render","render_timestamp_ns":DispatchTime.now().uptimeNanoseconds,"frame_id":renderFrame as Any,"source_id":renderSource as Any,"sequence":renderSequence as Any,"timestamp_domain":presentation["timestamp_domain"] as Any,"identity_status":renderIdentity])
         let now=DispatchTime.now().uptimeNanoseconds; renderSamples.append(now); renderSamples=renderSamples.filter{$0+2_000_000_000 >= now}
+        renderRate=renderSamples.count>1 ? Double(renderSamples.count-1)*1_000_000_000.0/Double(renderSamples.last!-renderSamples.first!) : 0
         NSColor(calibratedRed: 0.015, green: 0.03, blue: 0.07, alpha: 1).setFill(); rect.fill()
         let objects = presentation["objects"] as? [[String: Any]] ?? []
-        let object = objects.first ?? [:]
+        drawObjects(objects)
+        let object = objects.first(where: { $0["selected"] as? Bool ?? false }) ?? objects.first ?? [:]
         let selected = object["selected"] as? Bool ?? false
         let t = object["translation"] as? [Double] ?? [0, 0, 0]
         let s = (object["scale"] as? [Double])?.first ?? 1
@@ -51,21 +93,35 @@ final class View: NSView {
         let marker = NSBezierPath(); marker.move(to: center); marker.line(to: markerEnd); marker.lineWidth=6; color.setStroke(); marker.stroke()
         if presentation["rotation_trace"] != nil { diagnostic("stage=renderer rotation_quaternion=\(qw),\(qx),\(qy),\(qz) marker_endpoint=\(markerEnd.x),\(markerEnd.y)") }
         NSString(string: hud).draw(at: CGPoint(x: 24, y: 52), withAttributes: [.foregroundColor: NSColor.white, .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)])
-        let renderRate=renderSamples.count>1 ? Double(renderSamples.count-1)*1_000_000_000.0/Double(renderSamples.last!-renderSamples.first!) : 0
         let rates="camera FPS: \(String(format: "%.1f", presentation["camera_fps"] as? Double ?? 0))   Vision FPS: \(String(format: "%.1f", presentation["vision_fps"] as? Double ?? 0))   interaction FPS: \(String(format: "%.1f", presentation["interaction_fps"] as? Double ?? 0))   render FPS: \(String(format: "%.1f", renderRate))"
         NSString(string: rates).draw(at: CGPoint(x:24,y:76), withAttributes: [.foregroundColor:NSColor.systemGreen,.font:NSFont.monospacedSystemFont(ofSize:13,weight:.regular)])
         NSString(string: "Native camera + Vision host • scene revision \(presentation["scene_revision"] as? Int ?? 0)").draw(at: CGPoint(x:24,y:bounds.height-36), withAttributes: [.foregroundColor:NSColor.systemBlue,.font:NSFont.systemFont(ofSize:13)])
+    }
+    func drawObjects(_ objects:[[String:Any]]) {
+        let palette=[NSColor.systemTeal,NSColor.systemPurple,NSColor.systemGreen,NSColor.systemOrange]
+        for (index,object) in objects.enumerated() where (object["visible"] as? Bool ?? false) {
+            let t=object["translation"] as? [Double] ?? [0,0,0]; let s=(object["scale"] as? [Double])?.first ?? 1; let q=object["rotation"] as? [Double] ?? [1,0,0,0]; let w=q.count>0 ? q[0]:1; let z=q.count>3 ? q[3]:0; let angle=2*atan2(z,w); let center=CGPoint(x:bounds.midX+CGFloat(t[0])*180,y:bounds.midY+CGFloat(t[1])*180)
+            let pathName=object["asset_id"] as? String ?? ""; let path=pathName.hasPrefix("/") ? pathName : URL(fileURLWithPath:FileManager.default.currentDirectoryPath).appendingPathComponent(pathName).path
+            if assets[path] == nil { assets[path]=RuntimeAsset(path:path) }
+            guard let mesh=assets[path] else { continue }; var points:[CGPoint]=[]; for v in mesh.vertices { let rx=CGFloat(v.0)*CGFloat(cos(angle))-CGFloat(v.2)*CGFloat(sin(angle)); let rz=CGFloat(v.0)*CGFloat(sin(angle))+CGFloat(v.2)*CGFloat(cos(angle)); let depth=CGFloat(1.0 / max(0.3,4.5-Double(rz))); points.append(CGPoint(x:center.x+rx*110*CGFloat(s)*depth,y:center.y+CGFloat(v.1)*110*CGFloat(s)*depth)) }
+            let color=(object["selected"] as? Bool ?? false) ? NSColor.systemOrange : palette[index % palette.count]; color.setStroke(); let line=NSBezierPath(); line.lineWidth=(object["selected"] as? Bool ?? false) ? 5 : 2
+            if points.count>1 { line.move(to:points[0]); for p in points.dropFirst() { line.line(to:p) }; line.close(); line.stroke(); diagnostic("stage=asset_draw result=drawn object=\(object["object_id"] as? String ?? "<missing>") format=\(URL(fileURLWithPath:pathName).pathExtension.lowercased())") }
+            let marker=NSBezierPath(); marker.move(to:center); marker.line(to:CGPoint(x:center.x+cos(angle)*80*CGFloat(s),y:center.y+sin(angle)*80*CGFloat(s))); marker.lineWidth=4; color.setStroke(); marker.stroke()
+        }
     }
 }
 
 let app = NSApplication.shared; app.setActivationPolicy(.regular)
 let window = NSWindow(contentRect:NSRect(x:0,y:0,width:1000,height:700),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false)
 window.title = "Tony Stark Spatial Interaction"; let view=View(frame:window.contentView!.bounds); view.autoresizingMask=[.width,.height]; window.contentView=view; window.center(); window.makeKeyAndOrderFront(nil); app.activate(ignoringOtherApps:true)
+window.makeFirstResponder(view)
 
 let writeLock = NSLock()
 let diagnosticLock = NSLock()
 func diagnostic(_ message:String) { diagnosticLock.lock(); FileHandle.standardError.write(("SPATIAL_DIAGNOSTIC " + message + "\n").data(using:.utf8)!); diagnosticLock.unlock() }
 func emit(_ value: [String: Any]) { guard let data=try? JSONSerialization.data(withJSONObject:value), let line=String(data:data,encoding:.utf8) else{return}; writeLock.lock(); FileHandle.standardOutput.write((line+"\n").data(using:.utf8)!); writeLock.unlock() }
+func emitCPUAccounting() { var usage=rusage(); guard getrusage(RUSAGE_SELF, &usage) == 0 else { emit(["type":"cpu_accounting","process_identity":"native","pid":ProcessInfo.processInfo.processIdentifier,"accounting_status":"unavailable"]); return }; let user=Double(usage.ru_utime.tv_sec)+Double(usage.ru_utime.tv_usec)/1_000_000.0; let system=Double(usage.ru_stime.tv_sec)+Double(usage.ru_stime.tv_usec)/1_000_000.0; emit(["type":"cpu_accounting","process_identity":"native","pid":ProcessInfo.processInfo.processIdentifier,"user_cpu_time_s":user,"system_cpu_time_s":system,"accounting_status":"complete"])
+}
 func error(_ message:String)->Never { emit(["type":"error","message":message]); exit(1) }
 let auth=AVCaptureDevice.authorizationStatus(for:.video); diagnostic("stage=authorization status=\(auth) bundle=\(Bundle.main.bundleIdentifier ?? "<nil>")"); emit(["type":"status","status":"authorization_\(auth == .authorized ? "authorized" : auth == .notDetermined ? "notDetermined" : "denied")","bundle_id":Bundle.main.bundleIdentifier ?? ""])
 if auth == .notDetermined { let sem=DispatchSemaphore(value:0); AVCaptureDevice.requestAccess(for:.video){ _ in sem.signal() }; sem.wait() }
@@ -86,6 +142,7 @@ final class Delegate:NSObject,AVCaptureVideoDataOutputSampleBufferDelegate {
     func rate(_ samples:[UInt64])->Double { samples.count>1 ? Double(samples.count-1)*1_000_000_000.0/Double(samples.last!-samples.first!) : 0 }
     init(deviceID:String,request:VNDetectHumanHandPoseRequest){self.deviceID=deviceID;self.request=request}
     func captureOutput(_ output:AVCaptureOutput,didOutput sampleBuffer:CMSampleBuffer,from connection:AVCaptureConnection){
+        benchmarkCaptureCount += 1
         let receipt=DispatchTime.now().uptimeNanoseconds; cameraSamples.append(receipt); cameraSamples=cameraSamples.filter{$0+2_000_000_000 >= receipt}
         guard let pixel=CMSampleBufferGetImageBuffer(sampleBuffer) else { diagnostic("stage=delegate result=no_pixel_buffer"); return }
         CVPixelBufferLockBaseAddress(pixel,.readOnly); defer { CVPixelBufferUnlockBaseAddress(pixel,.readOnly) }
@@ -95,17 +152,20 @@ final class Delegate:NSObject,AVCaptureVideoDataOutputSampleBufferDelegate {
         if firstChecksum == nil { firstChecksum=checksum } else if checksum != firstChecksum { diagnostic("stage=delegate image_data=changing") }
         if !sampleSaved { saveSample(pixel); sampleSaved=true }
         let pts=CMSampleBufferGetPresentationTimeStamp(sampleBuffer); diagnostic("stage=delegate frame=\(sequence) dimensions=\(CVPixelBufferGetWidth(pixel))x\(CVPixelBufferGetHeight(pixel)) format=\(CVPixelBufferGetPixelFormatType(pixel)) stride=\(CVPixelBufferGetBytesPerRow(pixel)) bytes=\(bytes) checksum=\(checksum) timestamp=\(pts.value)/\(pts.timescale) locked_readable=true")
-        let handler=VNImageRequestHandler(cvPixelBuffer:pixel,options:[:]); do { try handler.perform([request]); visionSamples.append(DispatchTime.now().uptimeNanoseconds); visionSamples=visionSamples.filter{$0+2_000_000_000 >= receipt}; diagnostic("stage=vision frame=\(sequence) completed=true error=none revision=\(request.revision) max_hands=\(request.maximumHandCount) results=\(request.results?.count ?? 0)") } catch { diagnostic("stage=vision frame=\(sequence) completed=false error=\(error) revision=\(request.revision)") }; var hands:[[String:Any]]=[]
+        var hands:[[String:Any]]=[]
+        let visionSubmit=DispatchTime.now().uptimeNanoseconds; var visionComplete:Int64?=nil
+        if benchmarkVisionEnabled { let handler=VNImageRequestHandler(cvPixelBuffer:pixel,options:[:]); do { try handler.perform([request]); benchmarkVisionCount += 1; visionComplete=Int64(DispatchTime.now().uptimeNanoseconds); visionSamples.append(UInt64(visionComplete!)); visionSamples=visionSamples.filter{$0+2_000_000_000 >= receipt}; diagnostic("stage=vision frame=\(sequence) completed=true error=none revision=\(request.revision) max_hands=\(request.maximumHandCount) results=\(request.results?.count ?? 0)") } catch { diagnostic("stage=vision frame=\(sequence) completed=false error=\(error) revision=\(request.revision)") } }
         for (i,hand) in (request.results ?? []).enumerated(){ guard let points=try? hand.recognizedPoints(.all) else{continue}; var ls:[[Double]]=[]
             for name in [VNHumanHandPoseObservation.JointName.wrist,.thumbCMC,.thumbMP,.thumbIP,.thumbTip,.indexMCP,.indexPIP,.indexDIP,.indexTip,.middleMCP,.middlePIP,.middleDIP,.middleTip,.ringMCP,.ringPIP,.ringDIP,.ringTip,.littleMCP,.littlePIP,.littleDIP,.littleTip] { let p=points[name]; ls.append([p?.location.x ?? 0,p?.location.y ?? 0,0]) }
             diagnostic("stage=vision frame=\(sequence) hand=\(i) points=\(ls.count) confidence=\(hand.confidence)"); hands.append(["hand_id":"vision-\(i)","landmarks":ls,"confidence":hand.confidence])
         }
         let nsDouble=Double(pts.value)/Double(pts.timescale)*1_000_000_000.0; let ns=Int64(nsDouble)
-        emit(["type":"observation","frame_id":"frame-\(sequence)","source_id":deviceID,"sequence":sequence,"timestamp_ns":ns,"timestamp_domain":"avfoundation-media-time","timestamp_origin":"CMSampleBuffer presentation timestamp","width":CVPixelBufferGetWidth(pixel),"height":CVPixelBufferGetHeight(pixel),"pixel_format":"BGRA8","orientation":"native","mirrored":false,"hands":hands,"validity":"valid","tracking_status":hands.isEmpty ? "no_hand" : "observed","camera_fps":rate(cameraSamples),"vision_fps":rate(visionSamples)]); diagnostic("stage=ipc observation_written frame=\(sequence) hands=\(hands.count)"); sequence+=1
+        if benchmarkIPCEnabled { benchmarkIPCCount += 1; let ipcSend=DispatchTime.now().uptimeNanoseconds; emit(["type":"observation","frame_id":"frame-\(sequence)","source_id":deviceID,"sequence":sequence,"timestamp_ns":ns,"timestamp_domain":"avfoundation-media-time","timestamp_origin":"CMSampleBuffer presentation timestamp","capture_receipt_timestamp_ns":receipt,"vision_submit_timestamp_ns":visionSubmit,"vision_complete_timestamp_ns":visionComplete as Any,"ipc_send_timestamp_ns":ipcSend,"timestamp_clock_domain":"process-monotonic","width":CVPixelBufferGetWidth(pixel),"height":CVPixelBufferGetHeight(pixel),"pixel_format":"BGRA8","orientation":"native","mirrored":false,"hands":hands,"validity":"valid","tracking_status":hands.isEmpty ? "no_hand" : "observed","camera_fps":rate(cameraSamples),"vision_fps":rate(visionSamples),"render_fps":View.shared?.renderRate ?? 0.0]); diagnostic("stage=ipc observation_written frame=\(sequence) hands=\(hands.count)") }
+        sequence += 1
     }
     func saveSample(_ pixel:CVPixelBuffer) { let width=CVPixelBufferGetWidth(pixel), height=CVPixelBufferGetHeight(pixel), stride=CVPixelBufferGetBytesPerRow(pixel); guard let base=CVPixelBufferGetBaseAddress(pixel), let provider=CGDataProvider(data:Data(bytes:base,count:stride*height) as CFData), let image=CGImage(width:width,height:height,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:stride,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:CGImageAlphaInfo.premultipliedFirst.rawValue|CGBitmapInfo.byteOrder32Little.rawValue),provider:provider,decode:nil,shouldInterpolate:false,intent:.defaultIntent), let dest=CGImageDestinationCreateWithURL(URL(fileURLWithPath:"/tmp/spatial_vision_sample.png") as CFURL, "public.png" as CFString, 1, nil) else { diagnostic("stage=sample_save result=failed"); return }; CGImageDestinationAddImage(dest,image,nil); diagnostic("stage=sample_save result=\(CGImageDestinationFinalize(dest)) path=/tmp/spatial_vision_sample.png") }
     var sequence:UInt64=0
 }
 let delegate=Delegate(deviceID:device.uniqueID,request:request); let queue=DispatchQueue(label:"spatial.camera"); output.setSampleBufferDelegate(delegate,queue:queue); if let connection=output.connection(with:.video) { diagnostic("stage=video_connection mirrored=\(connection.isVideoMirrored) orientation_supported=\(connection.isVideoOrientationSupported) orientation=\(connection.videoOrientation.rawValue)") }; diagnostic("stage=vision_configuration revision=\(request.revision) supported_revisions=\(VNDetectHumanHandPoseRequest.supportedRevisions) max_hands=\(request.maximumHandCount)"); session.startRunning(); diagnostic("stage=session_start running=\(session.isRunning)")
-DispatchQueue.global(qos:.userInitiated).async { while let line=readLine(), let data=line.data(using:.utf8), let payload=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] { DispatchQueue.main.async { if payload["type"] as? String == "presentation" { view.presentation=payload; view.hands=payload["hands"] as? [[[Double]]] ?? []; view.needsDisplay=true } } }; DispatchQueue.main.async { session.stopRunning(); app.terminate(nil) } }
-signal(SIGTERM,SIG_IGN); let term=DispatchSource.makeSignalSource(signal:SIGTERM,queue:.main); term.setEventHandler{session.stopRunning();app.terminate(nil)}; term.resume(); app.run()
+DispatchQueue.global(qos:.userInitiated).async { while let line=readLine(), let data=line.data(using:.utf8), let payload=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] { DispatchQueue.main.async { if payload["type"] as? String == "presentation" { if view.presentation["frame_id"] != nil { diagnostic("stage=presentation_replaced previous_frame=\(view.presentation["frame_id"] as? String ?? "<nil>") new_frame=\(payload["frame_id"] as? String ?? "<nil>")") }; view.presentation=payload; view.hands=payload["hands"] as? [[[Double]]] ?? []; view.needsDisplay=true } } }; DispatchQueue.main.async { session.stopRunning(); app.terminate(nil) } }
+signal(SIGTERM,SIG_IGN); let term=DispatchSource.makeSignalSource(signal:SIGTERM,queue:.main); term.setEventHandler{session.stopRunning(); emitCPUAccounting(); diagnostic("stage=benchmark_summary mode=\(benchmarkMode) capture_count=\(benchmarkCaptureCount) vision_count=\(benchmarkVisionCount) ipc_count=\(benchmarkIPCCount) render_count=\(benchmarkRenderCount) render_enabled=\(benchmarkRenderEnabled)"); app.terminate(nil)}; term.resume(); app.run()
