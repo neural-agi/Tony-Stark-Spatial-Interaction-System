@@ -135,6 +135,24 @@ Plus: queue age, frame drops, jitter, CPU/GPU/memory usage, thermal behavior.
 
 Live interaction mapping: one open hand translates; one hand with a thumb/index pinch rotates through horizontal hand displacement at 1.0 radian per normalized screen-width with a 0.005 horizontal deadzone; two non-pinching hands scale from wrist distance. Pinch uses a 0.06 enter threshold and 0.075 exit threshold with hysteresis. Vertical movement does not rotate, and pinching suppresses translation for that frame.
 
+<<<<<<< HEAD
+=======
+Live two-hand mapping: a two-hand gesture locks on the first significant motion
+(radial distance change >= 0.03 selects SCALE; midpoint-X change >= 0.03 selects
+ROTATE, with SCALE winning ties). ROTATE uses horizontal midpoint displacement
+at 1.0 radian per normalized screen-width and a 0.005 deadzone; vertical motion
+does not rotate. The lock lasts until two-hand tracking ends.
+
+The live scene presents three independently selectable objects. Runtime content
+is resolved by the native renderer through Model I/O for `.obj`, `.gltf`, and
+`.glb` assets; the checked-in `assets/phase1-cube.obj` is the validated fixture.
+Development keys `1`, `2`, and `3` select/show an object, `R` resets it, `A`
+shows all objects, and `H` hides the selected object. Interaction recordings
+use versioned JSONL and replay their `InteractionEvent`s through `Scene.apply()`.
+The HUD reports camera, Vision, interaction, and AppKit render rates separately.
+
+Unified evidence harness: `PYTHONPATH=src python3 tools/evidence_harness.py --mode full --duration 30 --output benchmarks/results/phase1-evidence-<run>.jsonl`. Modes are `acquisition`, `vision`, `interaction`, `render`, and `full`; each output uses schema `phase1-evidence-1.0` and records a manifest, stage records, rates, process resources, and explicit unavailable GPU/thermal/memory-growth statuses.
+>>>>>>> 44a2388 (Document Phase 1 implementation and evidence)
 - Arbitrary 3D content support ✅ (contract-level)
 - Target: Characterize the practical performance ceiling and complete Phase 1 exit evidence on MacBook Air M5
 
