@@ -2,7 +2,7 @@
 
 > **Real-time spatial hand interaction inspired by sci-fi, built on engineering rigor. Webcam only. Measurable. Reproducible.**
 
-[![Tests Passing](https://img.shields.io/badge/tests-37%20passing-brightgreen)](tests/)
+[![Tests Passing](https://img.shields.io/badge/tests-61%20passing-brightgreen)](tests/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20M5-blue)](docs/PHASE1_AUDIT.md)
 [![Stage](https://img.shields.io/badge/stage-Phase%201%20%7C%20Live%20Interaction-orange)](docs/)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey)]()
@@ -32,10 +32,10 @@ A **low-latency, hand-driven spatial interaction system** built from first princ
 2. **Measured performance** — latency broken down stage-by-stage, not just "FPS go brrr"
 3. **Explicit semantics** — coordinate spaces, timestamps, transforms, validity, confidence are all explicit, never implicit
 4. **Reproducible baselines** — bounded buffering, sequence tracking, drop accounting mean results actually repeat
-5. **Deterministic tests** — 37+ tests pass without touching hardware; hardware-specific validation is separate
+5. **Deterministic tests** — 61 tests pass without touching hardware; hardware-specific validation is separate
 6. **Honest limitations** — unresolved problems are documented, not hidden
 
-**Current state:** Phase 1 acquisition, Vision perception, and live spatial interaction foundations are implemented and validated on the target MacBook Air M5. Phase 1 exit evidence is still in progress.
+**Current state:** Phase 1 acquisition, Vision perception, live spatial interaction, asset handling, and measurement infrastructure are implemented. Real MacBook Air M5 acquisition, Vision, and live interaction have been validated in representative runs; final Phase 1 hardware evidence remains incomplete.
 
 ---
 
@@ -65,20 +65,20 @@ Input → Acquisition → Perception → State → Intent → Interaction → Sc
 | Bounded acquisition | ✅ Complete |
 | Synthetic acquisition (testing) | ✅ Complete |
 | Native macOS AVFoundation | ✅ Complete and hardware-validated |
-| Acquisition protocol & tests | ✅ 37/37 deterministic tests passing |
+| Acquisition protocol & tests | ✅ 61/61 deterministic tests passing |
 | Hand perception | ✅ Apple Vision hand-pose backend implemented and hardware-validated |
 | State estimation | 🟡 Foundation implemented; Phase 3 filtering/state estimation pending |
 | Live interaction | ✅ Selection, translation, two-hand scaling, and pinch-based rotation implemented |
-| Phase 1 exit evidence | 🟡 In progress; sustained performance and robustness evidence remain |
+| Phase 1 exit evidence | 🟡 In progress; hardware performance, robustness, and final exit evidence remain |
 
 ### What's NOT Built (Yet)
 
-- Sustained live perception characterization and robustness validation
-- Complete sustained performance characterization on target hardware
+- Complete hardware performance, tracking, gesture, environmental, occlusion, degradation/recovery, and sustained-load validation
+- Complete sustained live hand-tracking characterization and robustness validation
 - Higher-level temporal gesture recognition and intent semantics (Phase 3)
 - Wearable sensor integration (Phase 2)
 
-**M5 hardware validation has begun and live interaction is operational; no Phase 1 completion claim is made until the full exit evidence is satisfied.**
+**M5 hardware validation is operational, but Phase 1 is not complete until the full performance, reliability, robustness, observability, and exit evidence is satisfied.**
 
 ---
 
@@ -135,25 +135,11 @@ Plus: queue age, frame drops, jitter, CPU/GPU/memory usage, thermal behavior.
 
 Live interaction mapping: one open hand translates; one hand with a thumb/index pinch rotates through horizontal hand displacement at 1.0 radian per normalized screen-width with a 0.005 horizontal deadzone; two non-pinching hands scale from wrist distance. Pinch uses a 0.06 enter threshold and 0.075 exit threshold with hysteresis. Vertical movement does not rotate, and pinching suppresses translation for that frame.
 
-<<<<<<< HEAD
-=======
-Live two-hand mapping: a two-hand gesture locks on the first significant motion
-(radial distance change >= 0.03 selects SCALE; midpoint-X change >= 0.03 selects
-ROTATE, with SCALE winning ties). ROTATE uses horizontal midpoint displacement
-at 1.0 radian per normalized screen-width and a 0.005 deadzone; vertical motion
-does not rotate. The lock lasts until two-hand tracking ends.
+The live scene presents three independently selectable objects. Runtime content is resolved by the native renderer through Model I/O for `.obj`, `.gltf`, and `.glb` assets; deterministic fixtures exist for all three formats, while glTF/GLB native runtime verification remains pending hardware execution. Development keys `1`, `2`, and `3` select/show an object, `R` resets it, `A` shows all objects, and `H` hides the selected object. Interaction recordings use versioned JSONL and replay their `InteractionEvent`s through `Scene.apply()`. The HUD reports camera, Vision, interaction, and AppKit render rates separately.
 
-The live scene presents three independently selectable objects. Runtime content
-is resolved by the native renderer through Model I/O for `.obj`, `.gltf`, and
-`.glb` assets; the checked-in `assets/phase1-cube.obj` is the validated fixture.
-Development keys `1`, `2`, and `3` select/show an object, `R` resets it, `A`
-shows all objects, and `H` hides the selected object. Interaction recordings
-use versioned JSONL and replay their `InteractionEvent`s through `Scene.apply()`.
-The HUD reports camera, Vision, interaction, and AppKit render rates separately.
+Unified evidence harness: `PYTHONPATH=src python3 tools/evidence_harness.py --mode full --duration 30 --output benchmarks/results/phase1-evidence-<run>.jsonl`. Modes are `acquisition`, `vision`, `ipc`, `interaction`, `render`, and `full`; each output uses the defined evidence schemas and records manifests, stage records, rates, process resources, timing data, and explicit unavailable GPU/thermal statuses.
 
-Unified evidence harness: `PYTHONPATH=src python3 tools/evidence_harness.py --mode full --duration 30 --output benchmarks/results/phase1-evidence-<run>.jsonl`. Modes are `acquisition`, `vision`, `interaction`, `render`, and `full`; each output uses schema `phase1-evidence-1.0` and records a manifest, stage records, rates, process resources, and explicit unavailable GPU/thermal/memory-growth statuses.
->>>>>>> 44a2388 (Document Phase 1 implementation and evidence)
-- Arbitrary 3D content support ✅ (contract-level)
+- Arbitrary 3D content support ✅ (contract-level); OBJ/glTF/GLB fixtures and production loading paths implemented, with glTF/GLB runtime verification pending
 - Target: Characterize the practical performance ceiling and complete Phase 1 exit evidence on MacBook Air M5
 
 ### Phase 2 — Sensorized Wearable Input
@@ -237,7 +223,7 @@ tony-stark-spatial-interaction-system/
 │   ├── VisionPerception.swift   # Apple Vision hand perception
 │   ├── SpatialInteraction.swift # Live camera/Vision/interaction host
 │   └── SyntheticDemo.swift      # Native synthetic renderer
-├── tests/                       # 37+ deterministic tests
+├── tests/                       # 61 deterministic tests
 │   ├── test_acquisition.py
 │   ├── test_interaction.py
 │   ├── test_geometry.py
@@ -374,13 +360,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 | Aspect | Status | Evidence |
 |--------|--------|----------|
 | Native macOS build | ✅ Complete | Swift code compiles |
-| M5 camera validation | ✅ Complete | Real MacBook Air Camera observations validated |
-| Camera capability characterization | 🟡 Partial | Real hardware cadence characterized; capability enumeration discrepancies remain |
-| Acquisition benchmarking | 🟡 Partial | 5s, 10s, 30s, lag, and configuration baseline artifacts exist; sustained Phase 1 characterization remains |
-| Sustained thermal behavior | ⏳ Pending | GPU/thermal measurements remain unavailable in current instrumentation |
+| M5 camera validation | 🟡 Representative validation complete | Real MacBook Air Camera observations and approximately 30 FPS runs exist; final campaign remains incomplete |
+| Camera capability characterization | 🟡 Partial | Real hardware cadence characterized; capability enumeration and practical ceiling remain to be established |
+| Acquisition benchmarking | 🟡 Partial | Multiple historical and controlled artifacts exist; final controlled hardware campaign remains |
+| Sustained thermal behavior | ⏳ Pending | Direct thermal telemetry remains unavailable; sustained hardware behavior still requires validation |
 | Phase 1 exit gate | ⏳ Pending | Performance, robustness, and final evidence remain |
 
-**Immediate next milestone:** Complete sustained live performance characterization, render-rate export, latency/jitter/drop evidence, resource measurements, robustness validation, and the Phase 1 exit evidence package.
+**Immediate next milestone:** Execute the signed hardware campaign, establish the practical performance ceiling, collect latency/jitter/resource/sustained evidence, complete robustness and runtime asset validation, and close the Phase 1 exit gate.
 
 ---
 
@@ -389,22 +375,22 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 This project makes an explicit performance contract:
 
 **Phase 1 Target (M5):**
-- Camera capture → perception → state → gesture: **< 35ms end-to-end**
-- Hand landmark jitter (RMS): **< 2 pixels**
-- Gesture recognition latency: **< 50ms**
-- Interaction update → render: **< 16ms** (60 FPS)
-- Sustained operation: **> 2 hours** without performance degradation
+- Camera capture → perception → state → gesture: target defined by the Phase 1 performance contract; hardware evidence remains pending
+- Hand landmark jitter (RMS): target defined by the Phase 1 performance contract; hardware evidence remains pending
+- Gesture recognition latency: target defined by the Phase 1 performance contract; hardware evidence remains pending
+- Interaction update → render: target defined by the Phase 1 performance contract; hardware evidence remains pending
+- Sustained operation: sustained hardware behavior must be characterized before Phase 1 exit
 
-**Currently:** 37 deterministic tests pass, real M5 camera/Vision/live interaction validation is operational, and performance characterization is in progress.
+**Currently:** 61 deterministic tests pass, real M5 camera/Vision/live interaction validation is operational in representative runs, and final hardware performance characterization is pending.
 
 ---
 
 ## Known Limitations
 
 **Intentionally unresolved:**
-- Complete Phase 1 sustained performance and robustness validation
+- Complete hardware performance, tracking, gesture, environmental, occlusion, degradation/recovery, and sustained-load validation
 - Perception backend remains provisionally selected as Apple Vision pending broader comparative evaluation
-- Sustained live hand-tracking characterization and robustness validation
+- Final sustained live hand-tracking characterization and robustness validation
 - Some affine transform cases (require matrix representation)
 
 **Not limitations, just deferred:**
@@ -431,7 +417,7 @@ Built-in instrumentation:
 - Frame tracing with source timestamps
 - Stage-by-stage latency breakdown
 - Queue depth tracking & drop accounting
-- Statistical summaries (min/max/mean/p95)
+- Statistical summaries (min/max/median/p95/p99)
 - Metadata for reproducibility
 
 **Example:**
@@ -476,7 +462,7 @@ The goal is not to prove that spatial interaction *can* be done (it obviously ca
 
 ## Gallery & Examples
 
-*Live screenshots and recordings are now available from the validated M5 hardware pipeline; sustained benchmark artifacts are still being expanded.*
+*Live screenshots and recordings are available from representative M5 hardware runs; sustained benchmark and robustness evidence is still being completed.*
 
 Expected artifacts:
 - Single-hand object manipulation
@@ -530,9 +516,9 @@ If you're building on this work for research:
 ## Roadmap
 
 ### Phase 1 (Current)
-- [x] M5 hardware validation
-- [x] Camera baseline characterization
-- [x] Initial Apple Vision backend selection and hardware validation
+- [ ] M5 hardware validation campaign
+- [ ] Camera baseline characterization
+- [x] Initial Apple Vision backend selection and representative hardware validation
 - [x] Live hand perception implementation
 - [ ] Phase 1 exit evidence
 
@@ -567,8 +553,8 @@ If you're building on this work for research:
 
 **Built by engineers who think latency matters and handwaving about "it's fast" isn't a performance metric.**
 
-Current acquisition status: the native helper is signed for arm64 and real MacBook Air Camera frame delivery has been validated. Acquisition baselines include approximately 30 FPS source cadence under representative runs, with cadence variability and sustained performance still being characterized.
+Current acquisition status: the native helper is signed for arm64 with the required camera entitlement, and real MacBook Air Camera frame delivery has been validated in representative runs. Acquisition evidence includes approximately 30 FPS source cadence, while the final controlled campaign, practical ceiling, and sustained behavior remain to be established.
 
-Latest live status: Apple Vision hand perception and the native live interaction pipeline are operational on real hardware. Two-hand scaling and pinch-based rotation are implemented, while sustained performance, robustness, and final Phase 1 exit evidence remain incomplete.
+Latest live status: Apple Vision hand perception and the native live interaction pipeline are operational on real hardware. Two-hand scaling and pinch-based rotation are implemented, deterministic OBJ/glTF/GLB fixtures and runtime loading paths are present, and measurement infrastructure is in place. Sustained performance, robustness, runtime asset verification, and final Phase 1 exit evidence remain incomplete.
 
 *"The goal is not to make the fastest demo. The goal is to build a spatial interaction system whose performance, limitations, and architectural decisions can be measured and defended."*
